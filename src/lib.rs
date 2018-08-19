@@ -1,3 +1,11 @@
+#![deny(missing_docs)]
+#![forbid(unsafe_code)]
+
+//! Expose `Read`+`Write`+`Seek` (or just `Read`+`Seek`) as a FUSE-backed regular file
+//!
+//! Example:
+//! TODO
+
 extern crate fuse;
 extern crate libc;
 extern crate time;
@@ -16,7 +24,7 @@ const CREATE_TIME: Timespec = Timespec {
 
 const TTL: Timespec = Timespec { sec: 9999, nsec: 0 };
 
-use self::libc::{c_int,EROFS};
+use self::libc::{c_int, EROFS};
 fn errmap(e: Error) -> c_int {
     use self::libc::*;
     use ErrorKind::*;
@@ -82,6 +90,7 @@ trait MyWriteEx: Write {
 }
 impl<T: Write> MyWriteEx for T {}
 
+/// A read-only Filesystem for your Read+Seek [pseudo]file
 pub struct ReadSeekFs<F: Read + Seek> {
     file: F,
     fa: FileAttr,
@@ -91,9 +100,10 @@ impl<F> ReadSeekFs<F>
 where
     F: Read + Seek,
 {
-    pub fn new(mut f: F, bs: usize) -> Result<ReadSeekFs<F>> {
+    /// Wrap your reader-seeking into a `fuse::Filesystem` implementation
+    pub fn new(mut f: F, blocksize: usize) -> Result<ReadSeekFs<F>> {
         let len = f.seek(SeekFrom::End(0))?;
-        let blocks = ((len - 1) / (bs as u64)) + 1;
+        let blocks = ((len - 1) / (blocksize as u64)) + 1;
 
         Ok(ReadSeekFs {
             file: f,
@@ -140,14 +150,14 @@ where
         reply.entry(&TTL, &self.fa, 0);
     }
 
-    fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
+    fn getattr(&mut self, _req: &Request, _ino: u64, reply: ReplyAttr) {
         reply.attr(&TTL, &self.fa);
     }
 
     fn read(
         &mut self,
         _req: &Request,
-        ino: u64,
+        _ino: u64,
         _fh: u64,
         offset: i64,
         size: u32,
@@ -158,14 +168,14 @@ where
             Err(e) => reply.error(errmap(e)),
         }
     }
-    
+
     fn write(
         &mut self,
         _req: &Request,
         _ino: u64,
         _fh: u64,
-        offset: i64,
-        data: &[u8],
+        _offset: i64,
+        _data: &[u8],
         _flags: u32,
         reply: ReplyWrite,
     ) {
@@ -193,15 +203,16 @@ where
     }
 }
 
-
+/// A read-write Filesystem for your Read+Write+Seek [pseudo]file
 pub struct ReadWriteSeekFs<F: Read + Write + Seek>(ReadSeekFs<F>);
 
 impl<F> ReadWriteSeekFs<F>
 where
     F: Read + Write + Seek,
 {
-    pub fn new(mut f: F, bs: usize) -> Result<ReadWriteSeekFs<F>> {
-        Ok(ReadWriteSeekFs(ReadSeekFs::new(f,bs)?))
+    /// Wrap your writable [pseudo]file into an implementation of `fuse::Filesystem`
+    pub fn new(f: F, blocksize: usize) -> Result<ReadWriteSeekFs<F>> {
+        Ok(ReadWriteSeekFs(ReadSeekFs::new(f, blocksize)?))
     }
 
     fn seek_and_write(&mut self, offset: i64, data: &[u8]) -> Result<usize> {
@@ -214,11 +225,11 @@ impl<F> Filesystem for ReadWriteSeekFs<F>
 where
     F: Read + Write + Seek,
 {
-    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+    fn lookup(&mut self, _req: &Request, _parent: u64, _name: &OsStr, reply: ReplyEntry) {
         reply.entry(&TTL, &self.0.fa, 0);
     }
 
-    fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
+    fn getattr(&mut self, _req: &Request, _ino: u64, reply: ReplyAttr) {
         reply.attr(&TTL, &self.0.fa);
     }
 
@@ -234,7 +245,6 @@ where
         self.0.read(_req, ino, _fh, offset, size, reply)
     }
 
-    
     fn write(
         &mut self,
         _req: &Request,
@@ -251,14 +261,7 @@ where
         }
     }
 
-    fn flush(
-        &mut self,
-        _req: &Request,
-        _ino: u64,
-        _fh: u64,
-        _lock_owner: u64,
-        reply: ReplyEmpty,
-    ) {
+    fn flush(&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
         match self.0.file.flush() {
             Ok(()) => reply.ok(),
             Err(e) => reply.error(errmap(e)),
