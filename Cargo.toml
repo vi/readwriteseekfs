@@ -5,6 +5,9 @@ authors = ["Vitaly \"_Vi\" Shukela <vi0oss@gmail.com>"]
 description = "Expose Read+Write+Seek (or just Read+Seek) as a FUSE-backed regular file"
 readme = "README.md"
 keywords = ["fuse", "filesystem", "read", "write", "seek"]
+categories = ["filesystem"]
+license = "MIT/Apache-2.0"
+repository = "https://github.com/vi/readwriteseekfs"
 
 [dependencies]
 fuse = "0.3.0"
